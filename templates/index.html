@@ -6,12 +6,14 @@
   <title>Enginuity AI Nexus</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src=" static/jquery.min.js"></script>
+
   <style id="theme-style">
     body {
       background-color: #121212;
       color: #f1f1f1;
     }
-    .chat-box {
+    .chatbox {
       height: 400px;
       overflow-y: auto;
       background-color: #1e1e1e;
@@ -64,7 +66,7 @@
   </div>
   <div class="row">
     <div class="col-md-3">
-      <div class="chat-box mb-3" id="chat-box"></div>
+      <div class="chatbox mb-3" id="chatbox"></div>
       <div class="input-group">
         <input type="text" id="chat-input" class="form-control chat-input" placeholder="Ask me anything..."/>
         <button class="btn btn-primary" onclick="sendMessage()">Send</button>
@@ -127,6 +129,11 @@
 <script>
   let autoRefresh = false;
   let interval;
+    document.addEventListener("DOMContentLoaded",function(){
+                const chatBox = document.getElementById("chatbox");
+                const defaultMessage = `<div class="bot-message">AI: Hi! I am your SPU AI Assistant. Greetings !!! How can I help you today?<br>Please select a DevOps tool: Jenkins, Bitbucket, Jira, or Confluence</div>`;
+                chatBox.innerHTML = defaultMessage;
+                });
 
   function toggleTheme() {
     const style = document.getElementById('theme-style');
@@ -153,25 +160,435 @@
     document.getElementById(id).textContent = timeString;
   }
 
+
+        function appendMessage(message,sender) {
+
+                  const chatBox = document.getElementById("chatbox");
+                        chatBox.innerHTML += `<div><strong>${sender}:</strong> ${message}</div>`;
+                  chatBox.scrollTop = chatBox.scrollHeight;
+
+        }
+        function displayOptions(options, tool) {
+            options.forEach(option => {
+                const button = $('<button class="option-button"></button>').text(option);
+                button.click(function() {
+                    appendMessage(option, 'You');
+                    getSubOptions(tool, option);
+                });
+                $('#chatbox').append(button);
+            });
+        }	
   function sendMessage() {
     const input = document.getElementById("chat-input");
-    const msg = input.value;
-    if (!msg.trim()) return;
-    const chatBox = document.getElementById("chat-box");
-    chatBox.innerHTML += `<div><strong>You:</strong> ${msg}</div>`;
-    input.value = "";
-
-    fetch("/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: msg })
-    })
-    .then(res => res.json())
-    .then(data => {
-      chatBox.innerHTML += `<div><strong>AI:</strong> ${data.response}</div>`;
-      chatBox.scrollTop = chatBox.scrollHeight;
-    });
+    const userInput = input.value.trim();
+        if (!userInput) return;
+                if (userInput) {
+                    appendMessage(userInput, "You");
+                    $('#chat-input').val('');
+                    // Call backend API for tool options
+                    if (["jenkins","bitbucket","jira","confluence"].includes(userInput.toLowerCase())) {
+                        $.ajax({
+                            url: '/get_options',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ 'tool': userInput.toLowerCase() }),
+                            success: function(response) {
+                                if (response.options.length > 0) {
+                                    appendMessage('You selected ' + userInput + '. Here are some options:', 'AI');
+                                    displayOptions(response.options, userInput.toLowerCase());
+                                } else {
+                                    appendMessage("Sorry, I don't recognize that tool.", "AI");
+                                }
+                            }
+                        });
+                    } else {
+                        handleCommand(userInput);
+                    }
+                }
   }
+
+
+                function handleCommand(userInput){
+
+                        let tool = localStorage.getItem('currentTool');
+                        let choice = localStorage.getItem('currentChoice');
+
+                        if (choice === "Create Repo" && tool === "bitbucket") {
+                                createBitbucketRepo(userInput);
+                        }
+                        else if (choice === "Create Branch" && tool === "bitbucket"){
+                                getUserInputForBranch(userInput);
+                        }
+                        else if (choice === "Create PR" && tool === "bitbucket"){
+                                getUserInputForPR(userInput);
+                        }
+                        else if (choice === "Search Document" && tool === "confluence"){
+                                SearchConfluenceDocument(userInput);
+                        }
+                        else if (choice === "Search Page" && tool === "confluence"){
+                                SearchConfluenceWord (userInput);
+                        }
+                        else if (choice === "View Issues" && tool ==="jira") {
+                                                                viewJiraIssue(userInput);
+                                                }
+                                                else if (choice === "Create Issue" && tool ==="jira") {
+                                getUserInputforJiraIssue(userInput);
+                                                }
+                                                else if (choice === "Build Job" && tool === "jenkins"){
+                                getUserInputForJenkinsJob(userInput);
+                        }
+                                                else if (choice === "Search Job" && tool === "jenkins"){
+                                searchJenkinsJob(userInput);
+                        }
+                        else if (choice === "Trigger Job" && tool === "jenkins"){
+                                triggerJenkinsJob(userInput);
+                        }
+                                                else {
+                            appendMessage("Please select from Jenkins, Bitbucket, Jira, or Confluence.", "bot");
+                        }
+                }
+
+
+
+
+
+
+
+                let branchInput = {};
+                let prInput = {};
+                let jenkinsInput = {};
+                let jiraInput ={};
+
+                function getUserInputForBranch(userInput){
+                  if(!branchInput.project_key){
+                        branchInput.project_key = userInput;
+                        appendMessage("Enter Repository name: ", "AI");
+                  } else if(!branchInput.repo_name){
+                        branchInput.repo_name = userInput;
+                        appendMessage("Enter the new branch Name: ", "AI");
+                  } else if(!branchInput.new_branch_name){
+                        branchInput.new_branch_name = userInput;
+                        appendMessage("Enter source Branch: ", "AI");
+                  }else {
+                        branchInput.base_branch = userInput;
+
+                        createBitbucketBranch(branchInput);
+                        branchInput = {};
+                        }
+                }
+
+        function createBitbucketBranch(branchData) {
+                  $.ajax({
+                          url: '/bitbucket/create_branch',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify(branchData),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+        function getUserInputForPR(userInput){
+                  if(!prInput.project_key){
+                    prInput.project_key = userInput;
+                    appendMessage("Enter Repository name: ", "AI");
+                  }else if(!prInput.repo_name){
+                    prInput.repo_name = userInput;
+                    appendMessage("Enter source Branch: ", "AI");
+                  }else if(!prInput.source_branch){
+                    prInput.source_branch = userInput;
+                    appendMessage("Enter Destination Branch: ", "AI");
+                  }else if(!prInput.destination_branch){
+                    prInput.destination_branch = userInput;
+                    appendMessage("Enter Description: ", "AI");
+                  }else if(!prInput.description){
+                    prInput.description = userInput;
+                    appendMessage("Enter Title: ", "AI");
+                  } else {
+                    prInput.title = userInput;
+                    createBitbucketPR(prInput);
+                    prInput = {};
+                    }
+                }
+        function createBitbucketPR(prData) {
+                  $.ajax({
+                          url: '/bitbucket/create_pr',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify( prData ),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+                function createBitbucketRepo(repoName) {
+                  $.ajax({
+                          url: '/bitbucket/create_repo',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({ repo_name: repoName }),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+function SearchConfluenceDocument(documentname) {
+                  $.ajax({
+                          url: '/confluence/search_document',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({document_name : documentname}),
+                          success: function(response) {
+                            if (response.document_urls){
+                                        let url = response.document_urls;
+                                        let document_links = `<a href="${url}"  target="_blank" style="display:  inline-block; color: blue; text-decoration:underline;">Download Document</a>` ;
+                                        $("#chatbox").append("Document found:" + document_links );
+                                }else {
+                                  appendMessage(response.message, 'AI');
+                            }
+                          },
+                          error: function(error) {
+                                  appendMessage("Error:" + error.responseJSON.message, 'AI');
+                                }
+          });
+        }
+
+                function SearchConfluenceWord(searchWord) {
+                  $.ajax({
+                          url: '/confluence/search_word',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({word: searchWord }),
+                          success: function(response) {
+                            if (response.results) {
+                                let wordResults = "Word Search Results:<br>";
+                                response.results.forEach(result => {
+                                wordResults += `- <a href="${result.url}"  target="_blank">${result.title}</a><br>` ;
+                    });
+                                $("#chatbox").append( `<div class="bot-message">${wordResults}</div>`);
+                            } else {
+                                        appendMessage("NO results found for word ${searchWord}", 'AI');
+                                }
+                          },
+                          error: function(error) {
+                                  appendMessage("Error search word in confluence:"+ error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+function getUserInputforJiraIssue(userInput){
+                  if(!jiraInput.project){
+                        jiraInput.project = userInput.toUpperCase();
+                        appendMessage("Enter Issue summary: ", "AI");
+                  } else if (!jiraInput.summary){
+                    jiraInput.summary = userInput;
+                        appendMessage("Enter Issue Description: ", "AI");
+                  } else if (!jiraInput.description){
+                    jiraInput.description = userInput;
+                        appendMessage("Enter IssueType: ", "AI");
+                  } else if (!jiraInput.issuetype) {
+                        jiraInput.issuetype = userInput;
+                        createJiraIssue(jiraInput);
+                        jiraInput = {};
+                        }
+                }
+                function listJiraProject() {
+                  $.ajax({
+                          url: '/jira/projects',
+                          type: 'GET',
+                          success: function(response) {
+                            if (response.projects) {
+                                        let projectList = "Available Jira Project: ";
+                                        response.projects.forEach(project => {
+                                        projectList += `- ${project.name}(${project.key}) <br>`;
+                    });
+                                 $("#chatbox").append(` <div class="bot-message">${projectList}</div>`);
+                            } else {
+                                        appendMessage("NO Jira projects found or an error occured.", 'AI');
+                                }
+                          },
+                          error: function(error) {
+                                  appendMessage("Error listing jira project:, "+ error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+
+
+
+
+
+
+
+                function viewJiraIssue(issueKey) {
+                  $.ajax({
+                          url: '/jira/view_issue',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({issue_key: issueKey }),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                            if (response.issue_url) {
+                                let Ticket_links = `<a href="${response.issue_url}"  target="_blank">${issueKey}</a>` ;
+                                $("#chatbox").append(`<div class="bot-message">${projectList}</div>`);
+
+                                }
+                          },
+                          error: function(error) {
+                                  appendMessage("Error viewing jira issue: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+function createJiraIssue(jiraData) {
+                  $.ajax({
+                          url: '/jira/create_issue',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify(jiraData),
+                          success: function(response) {
+                          appendMessage(response.message, 'AI');
+                            if (response.issue_key) {
+                        let Ticket_links = `<a href="${response.issue_key}"  target="_blank">${response.issue_key}</a>` ;
+                        $("#chatbox").append( `<div class="bot-message">you can view it here:${Ticket_links}</div>`);
+                                }
+                          },
+                          error: function(error) {
+                                  appendMessage("Error creating jira issue: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+                function createJenkinsJob(jobData) {
+                  $.ajax({
+                          url: '/jenkins/create_job',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify(jobData),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+
+                function searchJenkinsJob(jobName) {
+                  $.ajax({
+                          url: '/jenkins/search_job',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({ job_name: jobName }),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+                function triggerJenkinsJob(jobName) {
+                  $.ajax({
+                          url: '/jenkins/trigger_job',
+                          type: 'POST',
+                          contentType: 'application/json',
+                          data: JSON.stringify({ job_name: jobName }),
+                          success: function(response) {
+                                appendMessage(response.message, 'AI');
+                          },
+                          error: function(error) {
+                                  appendMessage("Error: " + error.responseJSON.message, 'AI');
+                          }
+          });
+        }
+
+
+
+
+
+
+
+       function getSubOptions(tool, choice) {
+        localStorage.setItem('currentTool', tool);
+        localStorage.setItem('currentChoice', choice);
+        if (choice === "Create Repo" && tool === "bitbucket"){
+            appendMessage("Enter Repository name:","AI")
+            return;
+        }else if (choice === "Create Branch" && tool === "bitbucket"){
+            appendMessage("Enter Projectkey :","AI")
+            return;
+        }else if (choice === "Create PR" && tool === "bitbucket"){
+            appendMessage("Enter Projectkey :","AI")
+            return;
+        }else if (choice === "Build Job" && tool === "jenkins"){
+            appendMessage("Enter the job name:","AI")
+            return;
+        }else if (choice === "Search Job" && tool === "jenkins"){
+            appendMessage("Enter the job name:","AI")
+            return;
+        }else if (choice === "Trigger Job" && tool === "jenkins"){
+            appendMessage("Enter the job name:","AI")
+            return;
+        }else if (choice === "Search Document" && tool === "confluence"){
+            appendMessage("Enter the document name:","AI")
+            return;
+        }else if (choice === "Search Page" && tool === "confluence"){
+            appendMessage("Enter the word to search:","AI")
+            return;
+                } else if (choice === "View Projects" && tool ==="jira") {
+                        listJiraProject();
+                        return;
+        } else if (choice === "View Issues" && tool ==="jira") {
+            appendMessage("Enter Jira Issue Key:", "AI");
+            return;
+        }else if (choice === "Create Issue" && tool === "jira"){
+            appendMessage("Enter Jira Project Key:","AI")
+            return;
+         }else {
+           appendMessage("Please select from Jenkins, Bitbucket, Jira, or Confluence.", "bot");
+          
+	}
+            $.ajax({
+                url: '/get_sub_options',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ 'tool': tool, 'choice': choice }),
+                success: function(response) {
+                    if (response.sub_options.length > 0) {
+                        appendMessage('Here are more actions you can take:', 'AI');
+                        displayOptions(response.sub_options, tool);
+                    } else {
+                        appendMessage("Sorry, no further options available for " + choice, "AI");
+                    }
+                }
+            });
+        }
+
+
+
+
+
+
+
+
 
   function loadData() {
     fetch("/incidents").then(res => res.json()).then(data => {
